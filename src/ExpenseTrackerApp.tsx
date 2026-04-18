@@ -656,7 +656,6 @@ export function ExpenseTrackerApp() {
         ) : screen === "History" ? (
           <HistoryScreen
             expenses={expenses}
-            onDelete={deleteExpense}
             onEdit={(id) => setEditingId(id)}
           />
         ) : screen === "Budgets" ? (
@@ -1326,31 +1325,72 @@ const HEAT_COLORS = [
 
 function HistoryScreen({
   expenses,
-  onDelete,
   onEdit
 }: {
   expenses: Expense[];
-  onDelete: (id: string) => void;
   onEdit: (id: string) => void;
 }) {
+  const groupedHistory = useMemo(() => {
+    const groups = new Map<string, Expense[]>();
+    expenses.forEach((expense) => {
+      const bucket = groups.get(expense.date) ?? [];
+      bucket.push(expense);
+      groups.set(expense.date, bucket);
+    });
+
+    const today = getCurrentExpenseStamp().date;
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = `${yesterdayDate.getFullYear()}-${String(
+      yesterdayDate.getMonth() + 1
+    ).padStart(2, "0")}-${String(yesterdayDate.getDate()).padStart(2, "0")}`;
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, entries]) => ({
+        date,
+        label:
+          date === today
+            ? "Today"
+            : date === yesterday
+              ? "Yesterday"
+              : formatDateFriendly(date),
+        total: entries.reduce((sum, item) => sum + item.amount, 0),
+        entries: entries
+          .slice()
+          .sort((a, b) => (b.time ?? "").localeCompare(a.time ?? ""))
+      }));
+  }, [expenses]);
+
   return (
     <View style={styles.sectionCard}>
-      <Text style={styles.sectionTitle}>All transactions</Text>
+      <Text style={styles.sectionTitle}>History</Text>
       {expenses.length === 0 ? (
         <Text style={styles.helperText}>No transactions yet.</Text>
       ) : (
-        <>
-          <Text style={styles.helperText}>Tap any transaction to edit it.</Text>
-          {expenses.map((expense) => (
-            <TransactionRow
-              key={expense.id}
-              expense={expense}
-              onPress={() => onEdit(expense.id)}
-              onDelete={() => onDelete(expense.id)}
-              showDate
-            />
+        <View style={styles.historyStack}>
+          {groupedHistory.map((group) => (
+            <View key={group.date} style={styles.historyGroup}>
+              <View style={styles.historyGroupHeader}>
+                <Text style={styles.historyGroupTitle}>{group.label}</Text>
+                <Text style={styles.historyGroupTotal}>
+                  {formatCurrency(group.total)}
+                </Text>
+              </View>
+
+              <View style={styles.historyListCard}>
+                {group.entries.map((expense) => (
+                  <TransactionRow
+                    key={expense.id}
+                    expense={expense}
+                    onPress={() => onEdit(expense.id)}
+                    showDate={false}
+                  />
+                ))}
+              </View>
+            </View>
           ))}
-        </>
+        </View>
       )}
     </View>
   );
@@ -2017,6 +2057,36 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderWidth: 1,
     borderColor: "#1f1d30"
+  },
+  historyStack: {
+    marginTop: spacing.sm,
+    gap: spacing.md
+  },
+  historyGroup: {
+    gap: spacing.sm
+  },
+  historyGroupHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 4
+  },
+  historyGroupTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  historyGroupTotal: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  historyListCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    paddingHorizontal: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border
   },
   sectionHeader: {
     flexDirection: "row",
