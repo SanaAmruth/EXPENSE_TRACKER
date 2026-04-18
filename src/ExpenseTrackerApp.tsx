@@ -4,7 +4,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View
@@ -48,7 +47,7 @@ type HomeSegment = "Calendar" | "Recent";
 type DraftExpense = {
   amount: string;
   merchant: string;
-  paymentMode: PaymentMode;
+  paymentMode: PaymentMode | "";
   paymentSource: string;
   category: Category;
   comment: string;
@@ -64,29 +63,16 @@ const formatPaymentSource = (instrument: PaymentInstrument) =>
     ? `${instrument.label} • ${instrument.accountLabel}`
     : instrument.label;
 
-const pickInitialMode = (profile: PaymentProfile): PaymentMode => {
-  if (profile.upiAccounts.length > 0) return "UPI";
-  if (profile.cards.length > 0) return "Card";
-  if (profile.bankAccounts.length > 0) return "Bank";
-  return "Cash";
-};
-
-const pickInitialSource = (profile: PaymentProfile, mode: PaymentMode): string => {
-  const sources = getPaymentSources(profile, mode);
-  return sources[0] ? formatPaymentSource(sources[0]) : mode;
-};
-
 const createDraft = (
-  profile: PaymentProfile,
-  categories: Category[]
+  _profile: PaymentProfile,
+  _categories: Category[]
 ): DraftExpense => {
-  const mode = pickInitialMode(profile);
   return {
     amount: "",
     merchant: "",
-    paymentMode: mode,
-    paymentSource: pickInitialSource(profile, mode),
-    category: categories[0] ?? "Misc",
+    paymentMode: "",
+    paymentSource: "",
+    category: "",
     comment: ""
   };
 };
@@ -132,8 +118,8 @@ const makeExpense = (draft: DraftExpense): Expense => ({
   id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   amount: Number(draft.amount),
   merchant: draft.merchant.trim(),
-  paymentMode: draft.paymentMode,
-  paymentSource: draft.paymentSource,
+  paymentMode: draft.paymentMode || "Cash",
+  paymentSource: draft.paymentSource.trim(),
   category: draft.category.trim(),
   comment: draft.comment
 });
@@ -148,8 +134,6 @@ export function ExpenseTrackerApp() {
   const [isOnboarded, setIsOnboarded] = useState(false);
 
   // Onboarding state
-  const [cashEnabled, setCashEnabled] = useState(true);
-  const [directBankEnabled, setDirectBankEnabled] = useState(true);
   const [upiBanks, setUpiBanks] = useState<OnboardingChip[]>([]);
   const [cardNames, setCardNames] = useState<OnboardingChip[]>([]);
   const [newUpiBankName, setNewUpiBankName] = useState("");
@@ -172,10 +156,10 @@ export function ExpenseTrackerApp() {
       ),
     [expenses, userCategories]
   );
-  const activeSources = useMemo(
-    () => getPaymentSources(profile, draft.paymentMode),
-    [draft.paymentMode, profile]
-  );
+  const activeSources = useMemo(() => {
+    if (!draft.paymentMode) return [];
+    return getPaymentSources(profile, draft.paymentMode);
+  }, [draft.paymentMode, profile]);
   const monthTotal = useMemo(
     () => getMonthTotal(expenses, currentMonthKey),
     [currentMonthKey, expenses]
@@ -193,24 +177,22 @@ export function ExpenseTrackerApp() {
     setDraft((current) => ({
       ...current,
       paymentMode,
-      paymentSource: sources[0] ? formatPaymentSource(sources[0]) : paymentMode
+      paymentSource: sources[0] ? formatPaymentSource(sources[0]) : ""
     }));
   };
 
   const addExpense = () => {
-    if (!draft.amount) {
+    const numericAmount = Number(draft.amount);
+    if (!draft.amount.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
       return;
     }
     setExpenses((current) => [makeExpense(draft), ...current]);
-    const nextSources = getPaymentSources(profile, draft.paymentMode);
     setDraft({
       amount: "",
       merchant: "",
-      paymentMode: draft.paymentMode,
-      paymentSource: nextSources[0]
-        ? formatPaymentSource(nextSources[0])
-        : draft.paymentMode,
-      category: draft.category,
+      paymentMode: "",
+      paymentSource: "",
+      category: "",
       comment: ""
     });
     setManualOpen(false);
@@ -294,8 +276,8 @@ export function ExpenseTrackerApp() {
 
   const finishOnboarding = () => {
     const nextProfile = buildProfile({
-      cashEnabled,
-      directBankEnabled,
+      cashEnabled: true,
+      directBankEnabled: true,
       upiBanks,
       cardNames
     });
@@ -359,14 +341,10 @@ export function ExpenseTrackerApp() {
   if (!isOnboarded) {
     return (
       <OnboardingScreen
-        cashEnabled={cashEnabled}
-        directBankEnabled={directBankEnabled}
         upiBanks={upiBanks}
         cardNames={cardNames}
         newUpiBankName={newUpiBankName}
         newCardName={newCardName}
-        onToggleCash={setCashEnabled}
-        onToggleDirectBank={setDirectBankEnabled}
         onChangeNewUpiBank={setNewUpiBankName}
         onAddUpiBank={addUpiBank}
         onRemoveUpiBank={removeUpiBank}
@@ -469,7 +447,7 @@ export function ExpenseTrackerApp() {
                       onChangeText={(amount) =>
                         setDraft((current) => ({ ...current, amount }))
                       }
-                      placeholder="0"
+                      placeholder="Enter amount"
                       placeholderTextColor={colors.textMuted}
                       keyboardType="numeric"
                       style={styles.amountInput}
@@ -490,7 +468,7 @@ export function ExpenseTrackerApp() {
                   </View>
 
                   <View style={styles.sectionShell}>
-                    <Text style={styles.fieldLabel}>PAYMENT MODE</Text>
+                    <Text style={styles.fieldLabel}>PAYMENT MODE (OPTIONAL)</Text>
                     <View style={styles.categoryRow}>
                       {paymentModes.map((mode) => (
                         <Pressable
@@ -514,7 +492,7 @@ export function ExpenseTrackerApp() {
                     </View>
                   </View>
 
-                  {activeSources.length > 0 ? (
+                  {draft.paymentMode && activeSources.length > 0 ? (
                     <View style={styles.sectionShell}>
                       <Text style={styles.fieldLabel}>PAYMENT SOURCE</Text>
                       <View style={styles.categoryRow}>
@@ -549,12 +527,19 @@ export function ExpenseTrackerApp() {
                         })}
                       </View>
                     </View>
-                  ) : (
+                  ) : draft.paymentMode ? (
                     <View style={styles.sectionShell}>
                       <Text style={styles.fieldLabel}>PAYMENT SOURCE</Text>
                       <Text style={styles.helperText}>
                         No {draft.paymentMode} sources added. Pick a different mode
                         or add one in settings.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.sectionShell}>
+                      <Text style={styles.fieldLabel}>PAYMENT SOURCE (OPTIONAL)</Text>
+                      <Text style={styles.helperText}>
+                        Select a payment mode to choose a source.
                       </Text>
                     </View>
                   )}
@@ -720,14 +705,10 @@ export function ExpenseTrackerApp() {
 }
 
 function OnboardingScreen({
-  cashEnabled,
-  directBankEnabled,
   upiBanks,
   cardNames,
   newUpiBankName,
   newCardName,
-  onToggleCash,
-  onToggleDirectBank,
   onChangeNewUpiBank,
   onAddUpiBank,
   onRemoveUpiBank,
@@ -736,14 +717,10 @@ function OnboardingScreen({
   onRemoveCard,
   onFinish
 }: {
-  cashEnabled: boolean;
-  directBankEnabled: boolean;
   upiBanks: OnboardingChip[];
   cardNames: OnboardingChip[];
   newUpiBankName: string;
   newCardName: string;
-  onToggleCash: (value: boolean) => void;
-  onToggleDirectBank: (value: boolean) => void;
   onChangeNewUpiBank: (value: string) => void;
   onAddUpiBank: () => void;
   onRemoveUpiBank: (id: string) => void;
@@ -764,40 +741,6 @@ function OnboardingScreen({
           Add the bank accounts and credit cards you want available when logging
           expenses. You can skip any section.
         </Text>
-
-        <View style={styles.onboardingModeCard}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.listTitle}>Cash wallet</Text>
-              <Text style={styles.listMeta}>
-                Enable to log cash expenses without picking a source.
-              </Text>
-            </View>
-            <Switch
-              value={cashEnabled}
-              onValueChange={onToggleCash}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
-        <View style={styles.onboardingModeCard}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.listTitle}>Direct bank transfers</Text>
-              <Text style={styles.listMeta}>
-                Reuse your bank names for NetBanking / IMPS payments.
-              </Text>
-            </View>
-            <Switch
-              value={directBankEnabled}
-              onValueChange={onToggleDirectBank}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
 
         <View style={styles.onboardingModeCard}>
           <Text style={styles.listTitle}>Bank names</Text>
@@ -1931,6 +1874,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 28,
     paddingVertical: 14,
+    paddingLeft: 2,
     minWidth: 0
   },
   sectionShell: {
@@ -2425,11 +2369,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border
-  },
-  toggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm
   },
   bankBubbleWrap: {
     flexDirection: "row",
