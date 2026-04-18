@@ -1,5 +1,6 @@
-import { budgets, categories } from "./data";
+import { categories } from "./data";
 import {
+  Budget,
   Category,
   Expense,
   PaymentInstrument,
@@ -63,7 +64,7 @@ export const groupByMonth = (expenses: Expense[]) => {
   });
 };
 
-export const getBudgetStatus = (expenses: Expense[]) =>
+export const getBudgetStatus = (expenses: Expense[], budgets: Budget[]) =>
   budgets.map((budget) => {
     const spent = expenses
       .filter((expense) => expense.category === budget.category)
@@ -71,7 +72,7 @@ export const getBudgetStatus = (expenses: Expense[]) =>
     return {
       ...budget,
       spent,
-      progress: Math.min(spent / budget.limit, 1)
+      progress: budget.limit > 0 ? Math.min(spent / budget.limit, 1) : 0
     };
   });
 
@@ -153,6 +154,58 @@ export const smartParseExpense = (input: string, profile: PaymentProfile) => {
     comment: input
   };
 };
+
+export const getDisplayLabel = (expense: Expense): string => {
+  const merchant = (expense.merchant ?? "").trim();
+  if (merchant) return merchant;
+  const category = (expense.category ?? "").trim();
+  if (category) return category;
+  return "Miscellaneous";
+};
+
+export const formatTimeFriendly = (time: string): string => {
+  if (!time) return "";
+  const [hStr, mStr] = time.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (Number.isNaN(h) || Number.isNaN(m)) return time;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${hh}:${String(m).padStart(2, "0")} ${suffix}`;
+};
+
+export const formatDateFriendly = (dateIso: string): string => {
+  const parts = dateIso.split("-").map(Number);
+  if (parts.length < 3 || parts.some((part) => Number.isNaN(part))) return dateIso;
+  const [y, mo, d] = parts;
+  const date = new Date(y, (mo ?? 1) - 1, d ?? 1);
+  return date.toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short"
+  });
+};
+
+export const getTransactionsForDate = (
+  expenses: Expense[],
+  date: string
+): Expense[] =>
+  expenses
+    .filter((expense) => expense.date === date)
+    .slice()
+    .sort((a, b) => (b.time ?? "").localeCompare(a.time ?? ""));
+
+export const getTransactionsForMonth = (
+  expenses: Expense[],
+  monthKey: string
+): Expense[] =>
+  expenses
+    .filter((expense) => expense.date.startsWith(monthKey))
+    .slice()
+    .sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return (b.time ?? "").localeCompare(a.time ?? "");
+    });
 
 export const buildInsights = (expenses: Expense[]) => {
   const total = expenses.reduce((sum, expense) => sum + expense.amount, 0);

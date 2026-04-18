@@ -22,7 +22,7 @@ export default function App() {
             onChangeText={setInput}
             placeholder="Password"
             placeholderTextColor={colors.textMuted}
-            style={{ color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, width: "100%", marginBottom: 18, backgroundColor: colors.panel }}
+            style={{ color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, width: "100%", marginBottom: 18, backgroundColor: colors.panel, fontSize: 16 }}
             autoFocus
             onSubmitEditing={() => { if (input === PASSWORD) setEntered(true); }}
           />
