@@ -33,3 +33,7 @@ Recommended flow:
 4. Return parsed JSON for amount, merchant, mode, category, date, and comment.
 
 Keep the API key on a backend service, not inside the mobile app bundle.
+
+For a deployment-ready voice pipeline and API contract, see:
+
+- `docs/VOICE_DEPLOYMENT.md`

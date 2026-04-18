@@ -4,7 +4,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View
@@ -45,10 +44,11 @@ import {
 
 type Screen = "Home" | "History" | "Budgets" | "Insights";
 type HomeSegment = "Calendar" | "Recent";
+type AddExpenseMethod = "Voice" | "Manual";
 type DraftExpense = {
   amount: string;
   merchant: string;
-  paymentMode: PaymentMode;
+  paymentMode: PaymentMode | "";
   paymentSource: string;
   category: Category;
   comment: string;
@@ -64,29 +64,16 @@ const formatPaymentSource = (instrument: PaymentInstrument) =>
     ? `${instrument.label} • ${instrument.accountLabel}`
     : instrument.label;
 
-const pickInitialMode = (profile: PaymentProfile): PaymentMode => {
-  if (profile.upiAccounts.length > 0) return "UPI";
-  if (profile.cards.length > 0) return "Card";
-  if (profile.bankAccounts.length > 0) return "Bank";
-  return "Cash";
-};
-
-const pickInitialSource = (profile: PaymentProfile, mode: PaymentMode): string => {
-  const sources = getPaymentSources(profile, mode);
-  return sources[0] ? formatPaymentSource(sources[0]) : mode;
-};
-
 const createDraft = (
-  profile: PaymentProfile,
-  categories: Category[]
+  _profile: PaymentProfile,
+  _categories: Category[]
 ): DraftExpense => {
-  const mode = pickInitialMode(profile);
   return {
     amount: "",
     merchant: "",
-    paymentMode: mode,
-    paymentSource: pickInitialSource(profile, mode),
-    category: categories[0] ?? "Misc",
+    paymentMode: "",
+    paymentSource: "",
+    category: "",
     comment: ""
   };
 };
@@ -132,8 +119,8 @@ const makeExpense = (draft: DraftExpense): Expense => ({
   id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   amount: Number(draft.amount),
   merchant: draft.merchant.trim(),
-  paymentMode: draft.paymentMode,
-  paymentSource: draft.paymentSource,
+  paymentMode: draft.paymentMode || "Cash",
+  paymentSource: draft.paymentSource.trim(),
   category: draft.category.trim(),
   comment: draft.comment
 });
@@ -148,8 +135,6 @@ export function ExpenseTrackerApp() {
   const [isOnboarded, setIsOnboarded] = useState(false);
 
   // Onboarding state
-  const [cashEnabled, setCashEnabled] = useState(true);
-  const [directBankEnabled, setDirectBankEnabled] = useState(true);
   const [upiBanks, setUpiBanks] = useState<OnboardingChip[]>([]);
   const [cardNames, setCardNames] = useState<OnboardingChip[]>([]);
   const [newUpiBankName, setNewUpiBankName] = useState("");
@@ -157,7 +142,7 @@ export function ExpenseTrackerApp() {
 
   const [voiceText, setVoiceText] = useState("");
   const [customCategory, setCustomCategory] = useState("");
-  const [manualOpen, setManualOpen] = useState(false);
+  const [addExpenseMethod, setAddExpenseMethod] = useState<AddExpenseMethod>("Voice");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftExpense>(
     createDraft(defaultPaymentProfile, defaultCategories)
@@ -172,10 +157,10 @@ export function ExpenseTrackerApp() {
       ),
     [expenses, userCategories]
   );
-  const activeSources = useMemo(
-    () => getPaymentSources(profile, draft.paymentMode),
-    [draft.paymentMode, profile]
-  );
+  const activeSources = useMemo(() => {
+    if (!draft.paymentMode) return [];
+    return getPaymentSources(profile, draft.paymentMode);
+  }, [draft.paymentMode, profile]);
   const monthTotal = useMemo(
     () => getMonthTotal(expenses, currentMonthKey),
     [currentMonthKey, expenses]
@@ -193,27 +178,25 @@ export function ExpenseTrackerApp() {
     setDraft((current) => ({
       ...current,
       paymentMode,
-      paymentSource: sources[0] ? formatPaymentSource(sources[0]) : paymentMode
+      paymentSource: sources[0] ? formatPaymentSource(sources[0]) : ""
     }));
   };
 
   const addExpense = () => {
-    if (!draft.amount) {
+    const numericAmount = Number(draft.amount);
+    if (!draft.amount.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
       return;
     }
     setExpenses((current) => [makeExpense(draft), ...current]);
-    const nextSources = getPaymentSources(profile, draft.paymentMode);
     setDraft({
       amount: "",
       merchant: "",
-      paymentMode: draft.paymentMode,
-      paymentSource: nextSources[0]
-        ? formatPaymentSource(nextSources[0])
-        : draft.paymentMode,
-      category: draft.category,
+      paymentMode: "",
+      paymentSource: "",
+      category: "",
       comment: ""
     });
-    setManualOpen(false);
+    setAddExpenseMethod("Voice");
   };
 
   const parseVoiceEntry = () => {
@@ -228,7 +211,7 @@ export function ExpenseTrackerApp() {
       category: parsed.category,
       comment: parsed.comment
     }));
-    setManualOpen(true);
+    setAddExpenseMethod("Manual");
   };
 
   const parseAndAddVoiceEntry = () => {
@@ -249,7 +232,7 @@ export function ExpenseTrackerApp() {
     };
     setExpenses((current) => [makeExpense(voiceDraft), ...current]);
     setVoiceText("");
-    setManualOpen(false);
+    setAddExpenseMethod("Voice");
   };
 
   const addCustomCategory = () => {
@@ -294,8 +277,8 @@ export function ExpenseTrackerApp() {
 
   const finishOnboarding = () => {
     const nextProfile = buildProfile({
-      cashEnabled,
-      directBankEnabled,
+      cashEnabled: true,
+      directBankEnabled: true,
       upiBanks,
       cardNames
     });
@@ -359,14 +342,10 @@ export function ExpenseTrackerApp() {
   if (!isOnboarded) {
     return (
       <OnboardingScreen
-        cashEnabled={cashEnabled}
-        directBankEnabled={directBankEnabled}
         upiBanks={upiBanks}
         cardNames={cardNames}
         newUpiBankName={newUpiBankName}
         newCardName={newCardName}
-        onToggleCash={setCashEnabled}
-        onToggleDirectBank={setDirectBankEnabled}
         onChangeNewUpiBank={setNewUpiBankName}
         onAddUpiBank={addUpiBank}
         onRemoveUpiBank={removeUpiBank}
@@ -404,56 +383,69 @@ export function ExpenseTrackerApp() {
                 </View>
               </View>
 
-              <View style={styles.voiceHero}>
-                <Text style={styles.voiceTitle}>Speak naturally</Text>
-                <Text style={styles.voiceHint}>
-                  Type a sentence like "Paid 250 by UPI from HDFC for groceries" and
-                  tap convert.
-                </Text>
-                <TextInput
-                  multiline
-                  value={voiceText}
-                  onChangeText={setVoiceText}
-                  placeholder="Paid 250 by UPI from HDFC for groceries"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.input, styles.voiceInput]}
-                />
-                <View style={styles.actionStack}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.primaryButton,
-                      pressed && styles.pressed
-                    ]}
-                    onPress={parseAndAddVoiceEntry}
-                  >
-                    <Text style={styles.primaryButtonText}>Convert and save</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.outlineButton,
-                      pressed && styles.pressed
-                    ]}
-                    onPress={parseVoiceEntry}
-                  >
-                    <Text style={styles.outlineButtonText}>Fill fields only</Text>
-                  </Pressable>
+              <View style={styles.entryMethodCard}>
+                <Text style={styles.fieldLabel}>ADD EXPENSE USING</Text>
+                <View style={styles.entryMethodRow}>
+                  {(["Voice", "Manual"] as AddExpenseMethod[]).map((method) => (
+                    <Pressable
+                      key={method}
+                      onPress={() => setAddExpenseMethod(method)}
+                      style={[
+                        styles.entryMethodButton,
+                        addExpenseMethod === method && styles.entryMethodButtonActive
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.entryMethodButtonText,
+                          addExpenseMethod === method &&
+                            styles.entryMethodButtonTextActive
+                        ]}
+                      >
+                        {method}
+                      </Text>
+                    </Pressable>
+                  ))}
                 </View>
               </View>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.outlineButton,
-                  styles.manualToggleButton,
-                  pressed && styles.pressed
-                ]}
-                onPress={() => setManualOpen((current) => !current)}
-              >
-                <Text style={styles.outlineButtonText}>
-                  {manualOpen ? "Hide manual fields" : "Add expense manually"}
-                </Text>
-              </Pressable>
-
-              {manualOpen ? (
+              {addExpenseMethod === "Voice" ? (
+                <View style={styles.voiceHero}>
+                  <Text style={styles.voiceTitle}>Speak naturally</Text>
+                  <Text style={styles.voiceHint}>
+                    Type a sentence like "Paid 250 by UPI from HDFC for groceries"
+                    and tap convert.
+                  </Text>
+                  <TextInput
+                    multiline
+                    value={voiceText}
+                    onChangeText={setVoiceText}
+                    placeholder="Paid 250 by UPI from HDFC for groceries"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.input, styles.voiceInput]}
+                  />
+                  <View style={styles.actionStack}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        pressed && styles.pressed
+                      ]}
+                      onPress={parseAndAddVoiceEntry}
+                    >
+                      <Text style={styles.primaryButtonText}>Convert and save</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.outlineButton,
+                        pressed && styles.pressed
+                      ]}
+                      onPress={parseVoiceEntry}
+                    >
+                      <Text style={styles.outlineButtonText}>Fill fields only</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
                 <View style={styles.manualSection}>
                   <View style={styles.manualHeader}>
                     <Text style={styles.manualTitle}>Manual expense</Text>
@@ -469,7 +461,7 @@ export function ExpenseTrackerApp() {
                       onChangeText={(amount) =>
                         setDraft((current) => ({ ...current, amount }))
                       }
-                      placeholder="0"
+                      placeholder="Enter amount"
                       placeholderTextColor={colors.textMuted}
                       keyboardType="numeric"
                       style={styles.amountInput}
@@ -490,7 +482,7 @@ export function ExpenseTrackerApp() {
                   </View>
 
                   <View style={styles.sectionShell}>
-                    <Text style={styles.fieldLabel}>PAYMENT MODE</Text>
+                    <Text style={styles.fieldLabel}>PAYMENT MODE (OPTIONAL)</Text>
                     <View style={styles.categoryRow}>
                       {paymentModes.map((mode) => (
                         <Pressable
@@ -514,7 +506,7 @@ export function ExpenseTrackerApp() {
                     </View>
                   </View>
 
-                  {activeSources.length > 0 ? (
+                  {draft.paymentMode && activeSources.length > 0 ? (
                     <View style={styles.sectionShell}>
                       <Text style={styles.fieldLabel}>PAYMENT SOURCE</Text>
                       <View style={styles.categoryRow}>
@@ -549,12 +541,19 @@ export function ExpenseTrackerApp() {
                         })}
                       </View>
                     </View>
-                  ) : (
+                  ) : draft.paymentMode ? (
                     <View style={styles.sectionShell}>
                       <Text style={styles.fieldLabel}>PAYMENT SOURCE</Text>
                       <Text style={styles.helperText}>
                         No {draft.paymentMode} sources added. Pick a different mode
                         or add one in settings.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.sectionShell}>
+                      <Text style={styles.fieldLabel}>PAYMENT SOURCE (OPTIONAL)</Text>
+                      <Text style={styles.helperText}>
+                        Select a payment mode to choose a source.
                       </Text>
                     </View>
                   )}
@@ -630,7 +629,7 @@ export function ExpenseTrackerApp() {
                     <Text style={styles.primaryButtonText}>Save expense</Text>
                   </Pressable>
                 </View>
-              ) : null}
+              )}
             </View>
 
             <View style={styles.segmentRow}>
@@ -671,7 +670,6 @@ export function ExpenseTrackerApp() {
         ) : screen === "History" ? (
           <HistoryScreen
             expenses={expenses}
-            onDelete={deleteExpense}
             onEdit={(id) => setEditingId(id)}
           />
         ) : screen === "Budgets" ? (
@@ -720,14 +718,10 @@ export function ExpenseTrackerApp() {
 }
 
 function OnboardingScreen({
-  cashEnabled,
-  directBankEnabled,
   upiBanks,
   cardNames,
   newUpiBankName,
   newCardName,
-  onToggleCash,
-  onToggleDirectBank,
   onChangeNewUpiBank,
   onAddUpiBank,
   onRemoveUpiBank,
@@ -736,14 +730,10 @@ function OnboardingScreen({
   onRemoveCard,
   onFinish
 }: {
-  cashEnabled: boolean;
-  directBankEnabled: boolean;
   upiBanks: OnboardingChip[];
   cardNames: OnboardingChip[];
   newUpiBankName: string;
   newCardName: string;
-  onToggleCash: (value: boolean) => void;
-  onToggleDirectBank: (value: boolean) => void;
   onChangeNewUpiBank: (value: string) => void;
   onAddUpiBank: () => void;
   onRemoveUpiBank: (id: string) => void;
@@ -764,40 +754,6 @@ function OnboardingScreen({
           Add the bank accounts and credit cards you want available when logging
           expenses. You can skip any section.
         </Text>
-
-        <View style={styles.onboardingModeCard}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.listTitle}>Cash wallet</Text>
-              <Text style={styles.listMeta}>
-                Enable to log cash expenses without picking a source.
-              </Text>
-            </View>
-            <Switch
-              value={cashEnabled}
-              onValueChange={onToggleCash}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
-        <View style={styles.onboardingModeCard}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.listTitle}>Direct bank transfers</Text>
-              <Text style={styles.listMeta}>
-                Reuse your bank names for NetBanking / IMPS payments.
-              </Text>
-            </View>
-            <Switch
-              value={directBankEnabled}
-              onValueChange={onToggleDirectBank}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
 
         <View style={styles.onboardingModeCard}>
           <Text style={styles.listTitle}>Bank names</Text>
@@ -1383,31 +1339,67 @@ const HEAT_COLORS = [
 
 function HistoryScreen({
   expenses,
-  onDelete,
   onEdit
 }: {
   expenses: Expense[];
-  onDelete: (id: string) => void;
   onEdit: (id: string) => void;
 }) {
+  const groups = useMemo(() => {
+    const byDate = new Map<string, Expense[]>();
+    expenses.forEach((expense) => {
+      const current = byDate.get(expense.date) ?? [];
+      current.push(expense);
+      byDate.set(expense.date, current);
+    });
+    return Array.from(byDate.entries())
+      .map(([date, items]) => ({
+        date,
+        items: items.slice().sort((a, b) => (b.time ?? "").localeCompare(a.time ?? "")),
+        total: items.reduce((sum, item) => sum + item.amount, 0)
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [expenses]);
+
+  const todayIso = getCurrentExpenseStamp().date;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayIso = `${yesterday.getFullYear()}-${String(
+    yesterday.getMonth() + 1
+  ).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+
+  const getHistoryHeader = (date: string) => {
+    if (date === todayIso) return "Today";
+    if (date === yesterdayIso) return "Yesterday";
+    return formatDateFriendly(date);
+  };
+
   return (
     <View style={styles.sectionCard}>
-      <Text style={styles.sectionTitle}>All transactions</Text>
+      <Text style={styles.sectionTitle}>History</Text>
       {expenses.length === 0 ? (
         <Text style={styles.helperText}>No transactions yet.</Text>
       ) : (
-        <>
+        <View style={styles.historyList}>
           <Text style={styles.helperText}>Tap any transaction to edit it.</Text>
-          {expenses.map((expense) => (
-            <TransactionRow
-              key={expense.id}
-              expense={expense}
-              onPress={() => onEdit(expense.id)}
-              onDelete={() => onDelete(expense.id)}
-              showDate
-            />
+          {groups.map((group) => (
+            <View key={group.date} style={styles.historyDayGroup}>
+              <View style={styles.historyDayHeader}>
+                <Text style={styles.historyDayTitle}>{getHistoryHeader(group.date)}</Text>
+                <Text style={styles.historyDayTotal}>
+                  {formatCurrency(group.total)}
+                </Text>
+              </View>
+              {group.items.map((expense) => (
+                <TransactionRow
+                  key={expense.id}
+                  expense={expense}
+                  onPress={() => onEdit(expense.id)}
+                  showDate={false}
+                />
+              ))}
+            </View>
           ))}
-        </>
+        </View>
       )}
     </View>
   );
@@ -1882,6 +1874,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2
   },
+  entryMethodCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    marginBottom: spacing.md
+  },
+  entryMethodRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  entryMethodButton: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.panel,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  entryMethodButtonActive: {
+    backgroundColor: colors.accent
+  },
+  entryMethodButtonText: {
+    color: colors.textMuted,
+    fontWeight: "700"
+  },
+  entryMethodButtonTextActive: {
+    color: "#fff"
+  },
   voiceHero: {
     backgroundColor: colors.card,
     borderRadius: 20,
@@ -1889,9 +1912,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border
-  },
-  manualToggleButton: {
-    marginBottom: spacing.md
   },
   manualSection: {
     backgroundColor: colors.card,
@@ -1931,6 +1951,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 28,
     paddingVertical: 14,
+    paddingLeft: 2,
     minWidth: 0
   },
   sectionShell: {
@@ -2073,6 +2094,35 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderWidth: 1,
     borderColor: "#1f1d30"
+  },
+  historyList: {
+    marginTop: spacing.sm,
+    gap: spacing.md
+  },
+  historyDayGroup: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  historyDayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    marginBottom: spacing.xs
+  },
+  historyDayTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  historyDayTotal: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700"
   },
   sectionHeader: {
     flexDirection: "row",
@@ -2425,11 +2475,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border
-  },
-  toggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm
   },
   bankBubbleWrap: {
     flexDirection: "row",
